@@ -1,0 +1,659 @@
+#Name: Sneha Ramachandran
+#Hours Spent: about 50
+################################################################################
+import random
+from Tkinter import *
+from pygame import mixer
+
+def run(rows, cols):
+    #Create the root and the canvas
+    global canvas
+    root = Tk()
+    dimwidth = cols * 20 + 150
+    dimheight = rows * 20 + 150
+    canvas = Canvas(root, width = dimwidth, height = dimheight)
+    canvas.pack()
+    root.resizable(width=0, height=0)
+    #Set up canvas data and call init
+    class Struct: pass
+    canvas.data = Struct()
+    canvas.data.rows = rows
+    canvas.data.cols = cols
+    mixer.init(44000)
+    init()
+    #Set up events
+    root.bind("<Key>", keyPressed)
+    h = Button(root, text = "HELP", command = helpScreenCommand)
+    h.pack()
+    b = Button(root, text = "PAUSE/RESUME", command = pause)
+    b.pack()
+    r = Button(root, text = "RESTART", command = restart)
+    r.pack()
+    drawGame();preview();timerFired()
+    #Launch the app
+    root.mainloop()
+
+def restart():
+    run(15,10)
+    
+def init():
+    #Sets up the initial values for the game
+    canvas.data.cellSize = 20
+    canvas.data.margin = 75
+    canvas.data.width = canvas.data.cols * 20 + 150
+    canvas.data.height = canvas.data.rows * 20 + 150
+    canvas.data.empty = []
+    canvas.data.filled = []
+    canvas.data.fillPrint = []
+    canvas.data.count = 0
+    canvas.data.timer = 1
+    canvas.data.score = 0
+    canvas.data.p = 5
+    canvas.data.h = 5
+    canvas.data.downCount = 0
+    canvas.data.level = 0
+    canvas.data.gameOver = False
+    try:
+        canvas.data.turn = mixer.Sound('paddlesound.wav')
+        canvas.data.drop = mixer.Sound('breakBricks.wav')
+        canvas.data.click = mixer.Sound('click.wav')
+    except:
+        pass
+
+def timerFired():
+    #Redraws canvas after delay
+    level=0;w=canvas.data.width;h=canvas.data.height;p="PAUSED"
+    g="GAME OVER";l="LEVEL UP";wh="white";pFont='Helvetica 35 bold'
+    #Makes delay faster as you level up
+    for k in xrange(15, 10000, 15):
+        if canvas.data.score >= k:level += 1
+    time = 1000 - level * 200
+    #Checks if the game is pause
+    if continueTimer(canvas.data.timer) == 4:
+        canvas.data.state = 'paused'
+        if canvas.data.h == 5:
+            canvas.create_text(w/2,h/2,text=p,font=pFont,fill=wh)
+    else: redrawAll()
+    #Updates the level
+    if level > canvas.data.level:
+        canvas.create_text(w/2,h/2,text=l,font=pFont,fill=wh)
+    canvas.data.level = level;delay = time
+    if continueTimer(canvas.data.timer) == True:
+        canvas.after(delay, timerFired)
+    #Checks is game is over
+    elif continueTimer(canvas.data.timer) == False:
+        canvas.create_text(w/2,h/2,text=g,font=pFont,fill=wh)
+        canvas.data.gameOver = True
+
+def keyPressed(event):
+    #does different tasks for different key presses
+    #moves the tetris piece right a column
+    if (event.keysym == "Right"):
+        if isLegalRight() == True:
+            canvas.data.c += 1; redrawForMoving()
+    #moves the tetris pieve left a column
+    if (event.keysym == "Left"):
+        if isLegalLeft() == True: canvas.data.c -= 1; redrawForMoving()
+    #moves the tetris piece down a row
+    if (event.keysym == "Down"):
+        if isLegal() == True: canvas.data.r += 1; redrawForMoving()
+        elif canvas.data.downCount == 0: canvas.data.downCount == 1
+        else: canvas.data.downCount == 0; addToBoard()
+    #rotates the tetris piece counterclockwise
+    if (event.keysym == "Up") :
+        if isLegalRotate() == True:
+            redrawForMoving()
+            canvas.data.turn.play()
+    #pauses and resumes the game
+    if (event.char == "p"):keyPressedOther(event)
+    #drop the tetris piece to the bottom
+    if (event.keycode == 32): keyPressedOther(event)
+    #pulls up the help menu
+    if (event.char == "h"): keyPressedOther(event)
+
+
+def redrawAll():
+    #Redraws board when the timer fires
+    canvas.delete(ALL)
+    removeSquares()
+    drawBoard()
+    cumulative()
+    drawFallingPiece()
+    isLegal()
+    #If legal, drops piece down a row
+    if isLegal() == True:
+        canvas.data.r += 1
+    if isLegal() != True:
+        canvas.data.count += 1
+        if canvas.data.count == 2:
+            addToBoard()
+
+def redrawForMoving():
+    #Redraws board when moved or rotated
+    if continueTimer(canvas.data.timer) == True:
+        canvas.delete(ALL)
+        removeSquares()
+        drawBoard()
+        cumulative()
+        drawFallingPiece()
+
+def drawGame():
+    #Lists of all the possible tetris pieces and rotation
+    t = True
+    f = False
+    iP=[[t,t,t,t]];iP2=[[t],[t],[t],[t]]
+    lP=[[f,f,t],[t,t,t]];lP2=[[t,t],[f,t],[f,t]]
+    lP3=[[t,t,t],[t,f,f]];lP4=[[t,f],[t,f],[t,t]]
+    oP=[[t,t],[t,t]];sP=[[f,t,t],[t,t,f]]
+    sP2=[[t,f],[t,t],[f,t]];tP=[[f,t,f],[t,t,t]]
+    tP2=[[f,t],[t,t],[f,t]];tP3=[[t,t,t],[f,t,f]]
+    tP4=[[t,f],[t,t],[t,f]];zP=[[t,t,f],[f,t,t]]
+    zP2=[[f,t],[t,t],[t,f]];jP=[[t,f,f],[t,t,t]]
+    jP2=[[f,t],[f,t],[t,t]];jP3=[[t,t,t],[f,f,t]]
+    jP4=[[t,t],[t,f],[t,f]]
+    #Lists of the rotated pieces
+    canvas.data.tetrisPieces = [iP, jP, lP, oP, sP, tP, zP]
+    canvas.data.tetrisPieces2 = [iP2, lP2, sP2, tP2, zP2, jP2]
+    canvas.data.tetrisPieces3 = [lP3, tP3, jP3]
+    canvas.data.tetrisPieces4 = [lP4, tP4, jP4]
+    colors = ["cyan","blue","orange","yellow",'green','#ed42dc', "red"]
+    canvas.data.tetrisPieceColors = colors
+    drawBoard()
+
+def pause():
+    #Controls what happens when you press the pause button
+    if canvas.data.p == 5:
+        canvas.data.timer = 4
+        canvas.data.p = 4
+        timerFired()
+    elif canvas.data.p == 4:
+        canvas.data.timer = 1
+        canvas.data.p = 5
+        canvas.data.h = 5
+        timerFired()
+
+def helpScreenCommand():
+    #Controls what happens when you press the help button
+    if canvas.data.h == 5 and canvas.data.p == 5:
+        canvas.data.h=4;canvas.data.p=4;canvas.data.timer=4
+        timerFired(); helpScreen()
+    elif canvas.data.h == 5 and canvas.data.p == 4:
+        canvas.data.h = 4; canvas.data.timer = 4
+        timerFired(); helpScreen()
+    elif canvas.data.h == 4 and canvas.data.p ==4:
+        canvas.data.h = 5; canvas.data.p = 5
+        canvas.data.timer = 1
+        helpScreen(); timerFired()  
+        
+def keyPressedOther(event):
+    #pauses and resumes the game
+    if (event.char == "p"):
+        if canvas.data.p == 5:
+            canvas.data.timer = 4;canvas.data.p = 4;timerFired()
+            canvas.data.click.play()
+        elif canvas.data.p == 4:
+            canvas.data.timer = 1;canvas.data.p = 5
+            canvas.data.h = 5;timerFired()
+            canvas.data.click.play()
+    #drop the tetris piece to the bottom
+    if (event.keycode == 32) and canvas.data.gameOver == False:
+        immediateDrop(); canvas.data.drop.play()
+    #pulls up the help menu
+    if (event.char == "h"):
+        if canvas.data.h == 5 and canvas.data.p == 5:
+            canvas.data.h = 4; canvas.data.p = 4; canvas.data.timer = 4
+            timerFired(); helpScreen(); canvas.data.click.play()
+        elif canvas.data.h == 5 and canvas.data.p == 4:
+            canvas.data.h = 4; canvas.data.timer = 4
+            timerFired(); helpScreen(); canvas.data.click.play()
+        elif canvas.data.h == 4 and canvas.data.p ==4:
+            canvas.data.h = 5; canvas.data.p = 5
+            canvas.data.timer = 1
+            helpScreen(); timerFired()
+            canvas.data.click.play()
+            
+def helpScreen():
+    #Creates the help screen
+    l = canvas.data.margin
+    w = canvas.data.width/2
+    h = canvas.data.height
+    c = canvas
+    n = l+120
+    c.create_rectangle(l/2,l, w*2-l/2, h-l, fill = "white", outline = "black")
+    c.create_text(w,l+30,text="HELP",font='Helvetica 20 underline')
+    c.create_text(w,l+60,text="Score points by clearing rows")
+    c.create_text(w,l+80,text="Clear rows by filling them with colored blocks")
+    c.create_text(w,l+100,text="Every 15 points you level up")
+    c.create_text(w,n,text="Every level up, the pieces start dropping faster")
+    c.create_text(w,l+140,text="Controls", font="Helvetica 15 underline")
+    c.create_text(w,l+160,text="H = Help")
+    c.create_text(w,l+180,text="P = Pause")
+    c.create_text(w,l+200,text="Left Arrow = Move Left")
+    c.create_text(w,l+220,text="Right Arrow = Move Right")
+    c.create_text(w,l+240,text="Up Arrow = Rotate Counter-Clockwise")
+    c.create_text(w,l+260,text="Down Arrow = Move Down")
+    c.create_text(w,l+280,text="Space Bar = Immediate Drop")
+
+def helpScreenCommand():
+    if canvas.data.h == 5 and canvas.data.p == 5:
+        canvas.data.h = 4; canvas.data.p = 4; canvas.data.timer = 4
+        timerFired(); helpScreen()
+    elif canvas.data.h == 5 and canvas.data.p == 4:
+        canvas.data.h = 4; canvas.data.timer = 4
+        timerFired(); helpScreen()
+    elif canvas.data.h == 4 and canvas.data.p ==4:
+        canvas.data.h = 5; canvas.data.p = 5
+        canvas.data.timer = 1
+        helpScreen(); timerFired()
+
+def immediateDrop():
+    #Drops piece down to the last legal position
+    if canvas.data.p == 5 and canvas.data.h == 5:
+        while isLegal() == True:
+            canvas.data.r += 1
+        redrawForMoving()
+        addToBoard()
+        
+def continueTimer(x):
+    #Tells timer to continue
+    if x == 1:
+        return True
+    #Tells timer to stop (game over)
+    if x == 0:
+        return False
+    #Tells timer to pause
+    if x == 4:
+        return 4
+
+def preview():
+    canvas.data.piece = random.randint(0, 6)
+    newFallingPiece()
+
+def newFallingPiece():
+    #Tells function to print a new Falling Piece
+    c = canvas.data.cols
+    canvas.data.pieceDraw = canvas.data.piece
+    canvas.data.piece = random.randint(0, 6)
+    canvas.data.tetrisPreview = canvas.data.tetrisPieces[canvas.data.piece]
+    canvas.data.tetrisPreviewColor = canvas.data.tetrisPieceColors[canvas.data.piece]
+    canvas.data.tetrisPiece = canvas.data.tetrisPieces[canvas.data.pieceDraw]
+    drawPreview()
+    canvas.data.tetrisColor = canvas.data.tetrisPieceColors[canvas.data.pieceDraw]
+    canvas.data.r = 0
+    canvas.data.c = (c/ 2) - (len(canvas.data.tetrisPiece[0])/2)
+    drawFallingPiece()
+    #Returns False if the piece doesn't fit on the board
+    if isLegalRot(canvas.data.tetrisPiece) == False:
+        canvas.data.timer = 0
+    canvas.data.x = 1
+    canvas.data.count = 0
+
+def pause():
+    #Pauses the game when pause button pressed
+    if canvas.data.p == 5:
+        canvas.data.timer = 4
+        canvas.data.p = 4
+        timerFired()
+    elif canvas.data.p == 4:
+        canvas.data.timer = 1
+        canvas.data.p = 5
+        canvas.data.h = 5
+        timerFired()
+
+def drawBoard():
+    #Draws the board
+    w = canvas.data.width
+    h = canvas.data.height
+    m = canvas.data.margin
+    fB = "Helvetica 50 bold"
+    f = "Helvetica 20"; c = "#CC00FF"
+    s = str(canvas.data.score)
+    l = str(canvas.data.level)
+    canvas.create_rectangle(0, 0, w, h, fill = "grey", width = 0)
+    #Draws the title, score and level
+    canvas.create_text(w/2,m/2,text="TETRIS",font=fB,fill=c)
+    canvas.create_text(w/2,h-m/2-15,text="Score: "+s,font=f,fill=c)
+    canvas.create_text(w/2,h-m/2+15,text="Level: "+l,font=f,fill=c)
+    canvas.create_rectangle(m-5,m-5,w-(m-5),h-(m-5),fill=c,width=0)
+    for r in xrange(canvas.data.rows):
+        for c in xrange(canvas.data.cols):
+            rc = 'e' + str(r) + ',' + str(c)
+            if rc not in canvas.data.filled:
+                canvas.data.empty += [rc]
+                drawCell(r, c, "black")
+
+def rotatePiece2(x):
+    #Rotates piece to the 1st rotated position
+    canvas.data.new = canvas.data.tetrisPieces2[x]
+    n = canvas.data.new
+    if n == canvas.data.tetrisPieces2[0]:
+        canvas.data.r -= 1
+        canvas.data.c += 1
+    if isLegalRot(n) == True:
+        canvas.data.tetrisPiece = n
+        redrawForMoving()
+    if n == canvas.data.tetrisPieces2[0] and isLegalRot(n) != True:
+        canvas.data.r += 1
+        canvas.data.c -= 1
+        
+def rotatePiece3(x):
+    #Rotates piece to the 2nd rotated position
+    canvas.data.new = canvas.data.tetrisPieces3[x]
+    n = canvas.data.new
+    if n in canvas.data.tetrisPieces3[0:3]:
+        canvas.data.r += 1
+    if isLegalRot(n) == True:
+        canvas.data.tetrisPiece = n
+        redrawForMoving()
+    if n in canvas.data.tetrisPieces3[0:3] and isLegalRot(n) != True:
+        canvas.data.r -= 1
+
+def rotatePiece4(x):
+    #Rotates piece to the 3rd rotated position
+    canvas.data.new = canvas.data.tetrisPieces4[x]
+    n = canvas.data.new
+    if n in canvas.data.tetrisPieces4[0:3]:
+        canvas.data.r -= 1
+        canvas.data.c += 1
+    if isLegalRot(n) == True:
+        canvas.data.tetrisPiece = n
+        redrawForMoving()
+    if n in canvas.data.tetrisPieces4[0:3] and isLegalRot(n) != True:
+        canvas.data.r += 1
+        canvas.data.c -= 1
+
+def rotatePiece(x):
+    #Rotates piece to original position
+    canvas.data.new = canvas.data.tetrisPieces[x]
+    n = canvas.data.new
+    if n in canvas.data.tetrisPieces[1:3]:
+        canvas.data.c -= 1
+    if n == canvas.data.tetrisPieces[5]:
+        canvas.data.c -= 1
+    if n == canvas.data.tetrisPieces[0]:
+        canvas.data.r += 1
+        canvas.data.c -= 1
+    if isLegalRot(n) == True:
+        canvas.data.tetrisPiece = n
+        redrawForMoving()
+    if n == canvas.data.tetrisPieces[0] and isLegalRot(n) != True:
+        canvas.data.r -= 1
+        canvas.data.c += 1
+    if n == canvas.data.tetrisPieces[5] and isLegalRot(n) != True:
+        canvas.data.c += 1
+    if n in canvas.data.tetrisPieces[1:3] and isLegalRot(n) != True:
+        canvas.data.c += 1
+
+def isLegal():
+    #Returns True if the piece can move down
+    filled = canvas.data.filled
+    r = canvas.data.r + 1
+    for row in xrange(len(canvas.data.tetrisPiece)):
+        c = canvas.data.c
+        for col in xrange(len(canvas.data.tetrisPiece[0])):
+            if canvas.data.tetrisPiece[row][col] == True:
+                rc = 'e' + str(r) + ',' + str(c)
+                #Returns False if the piece can't move down
+                if rc not in canvas.data.empty or rc in filled:
+                    return False
+            c += 1
+        r += 1
+    return True
+
+def isLegalShadow(row):
+    #Returns True if the place where the piece would be dropped there
+    filled = canvas.data.filled
+    r = row + 1
+    for row in xrange(len(canvas.data.tetrisPiece)):
+        c = canvas.data.c
+        for col in xrange(len(canvas.data.tetrisPiece[0])):
+            if canvas.data.tetrisPiece[row][col] == True:
+                rc = 'e' + str(r) + ',' + str(c)
+                #Returns False if the piece wouldn't be dropped there
+                if rc not in canvas.data.empty or rc in filled:
+                    return False
+            c += 1
+        r += 1
+    return True
+
+def isLegalRot(x):
+    #Returns True if the tetris piece can be rotated
+    filled = canvas.data.filled
+    r = canvas.data.r
+    for row in xrange(len(x)):
+        c = canvas.data.c
+        for col in xrange(len(x[0])):
+            if x[row][col] == True:
+                rc = 'e' + str(r) + ',' + str(c)
+                #Returns False if cell already filled or out of board
+                if rc not in canvas.data.empty or rc in filled:
+                    return False
+            c += 1
+        r += 1
+    return True
+
+def isLegalRotate():
+    #Tells rotatePiece which tetris piece to draw when piece rotated
+    tP = canvas.data.tetrisPiece
+    if tP in canvas.data.tetrisPieces:
+        if tP == canvas.data.tetrisPieces[0]: rotatePiece2(0)
+        elif tP == canvas.data.tetrisPieces[1]: rotatePiece2(5)
+        elif tP == canvas.data.tetrisPieces[2]: rotatePiece2(1)
+        elif tP == canvas.data.tetrisPieces[3]: rotatePiece(3)
+        elif tP == canvas.data.tetrisPieces[4]: rotatePiece2(2)
+        elif tP == canvas.data.tetrisPieces[5]: rotatePiece2(3)
+        elif tP == canvas.data.tetrisPieces[6]: rotatePiece2(4)
+    elif tP in canvas.data.tetrisPieces2:
+        isLegalRotate2()
+    elif tP in canvas.data.tetrisPieces3:
+        if tP == canvas.data.tetrisPieces3[0]: rotatePiece4(0)
+        elif tP == canvas.data.tetrisPieces3[1]: rotatePiece4(1)
+        elif tP == canvas.data.tetrisPieces3[2]: rotatePiece4(2)
+    elif tP in canvas.data.tetrisPieces4:
+        if tP == canvas.data.tetrisPieces4[0]: rotatePiece(2)
+        elif tP == canvas.data.tetrisPieces4[1]: rotatePiece(5)
+        elif tP == canvas.data.tetrisPieces4[2]: rotatePiece(1)
+
+def isLegalRotate2():
+    #Tells rotatePiece which tetris piece to draw when piece rotated
+    tP = canvas.data.tetrisPiece
+    if tP == canvas.data.tetrisPieces2[0]: rotatePiece(0)
+    elif tP == canvas.data.tetrisPieces2[1]: rotatePiece3(0)
+    elif tP == canvas.data.tetrisPieces2[2]: rotatePiece(4)
+    elif tP == canvas.data.tetrisPieces2[3]: rotatePiece3(1)
+    elif tP == canvas.data.tetrisPieces2[4]: rotatePiece(6)
+    elif tP == canvas.data.tetrisPieces2[5]: rotatePiece3(2)
+        
+def isLegalRight():
+    #Returns True if the tetris piece can be moved right
+    filled = canvas.data.filled
+    r = canvas.data.r
+    for row in xrange(len(canvas.data.tetrisPiece)):
+        c = canvas.data.c + 1
+        for col in xrange(len(canvas.data.tetrisPiece[0])):
+            if canvas.data.tetrisPiece[row][col] == True:
+                rc = 'e' + str(r) + ',' + str(c)
+                #Returns False if cell already filled or out of board
+                if rc not in canvas.data.empty or rc in filled:
+                    return False
+            c += 1
+        r += 1
+    return True
+
+def isLegalLeft():
+    #Returns True if the tetris piece can be moved left
+    filled = canvas.data.filled
+    r = canvas.data.r
+    for row in xrange(len(canvas.data.tetrisPiece)):
+        c = canvas.data.c - 1
+        for col in xrange(len(canvas.data.tetrisPiece[0])):
+            if canvas.data.tetrisPiece[row][col] == True:
+                rc = 'e' + str(r) + ',' + str(c)
+                #Returns False if cell already filled, or out of board
+                if rc not in canvas.data.empty or rc in filled:
+                    return False
+            c += 1
+        r += 1
+    return True
+
+def drawPreview():
+    m = canvas.data.margin
+    w = canvas.data.width
+    h = canvas.data.height
+    cS = canvas.data.cellSize
+    r = 0
+    if canvas.data.tetrisPreview == canvas.data.tetrisPieces[0]:
+       canvas.data.tetrisPreview = canvas.data.tetrisPieces2[0]
+    for row in xrange(len(canvas.data.tetrisPreview[0])):
+        c = 0
+        for col in xrange(len(canvas.data.tetrisPreview)):
+            if canvas.data.tetrisPreview[col][row] == True:
+                l = w-m/2 + (r * cS) - 28
+                t = h/2 - cS + (c * cS)
+                l2 = l + cS
+                t2 = t + cS
+                fil = canvas.data.tetrisPreviewColor
+                canvas.create_rectangle(l,t,l2,t2,fill=fil,width=1)
+            c += 1
+        r += 1
+
+def drawFallingPiece():
+    #Tells functions to draw the where the piece would be if dropped
+    ra = canvas.data.r
+    while isLegalShadow(ra) == True:
+        ra += 1
+    for row in xrange(len(canvas.data.tetrisPiece)):
+        c = canvas.data.c 
+        for col in xrange(len(canvas.data.tetrisPiece[0])):
+            if canvas.data.tetrisPiece[row][col] == True:
+                drawShadow(ra,c)
+            c += 1
+        ra += 1
+    #Tells functions to draw the moving piece
+    r = canvas.data.r
+    for row in xrange(len(canvas.data.tetrisPiece)):
+        c = canvas.data.c 
+        for col in xrange(len(canvas.data.tetrisPiece[0])):
+            if canvas.data.tetrisPiece[row][col] == True:
+                drawSquare(r,c)
+            c += 1
+        r += 1
+    w = canvas.data.width
+    m = canvas.data.margin
+    h = canvas.data.height
+    canvas.create_text(w - m/2+2, h/2-50, text = "NEXT PIECE", fill = "#CC00FF")
+    canvas.create_rectangle(w - m +5, h/2 - 40, w,h/2+80, fill = "grey", width = 0)
+    drawPreview()
+                
+def addToBoard():
+    #Adds a placed tetris piece to the list of placed tetris pieces
+    r = canvas.data.r
+    for row in xrange(len(canvas.data.tetrisPiece)):
+        c = canvas.data.c - 1
+        for col in xrange(len(canvas.data.tetrisPiece[0])):
+            if canvas.data.tetrisPiece[row][col] == True:
+                rc = 'e' + str(r) + ',' + str(c+1)
+                color = canvas.data.tetrisColor
+                rcPrint = [r, c, color]
+                canvas.data.fillPrint += [rcPrint]
+                canvas.data.filled += [rc]
+                drawCellPiece(r, c, canvas.data.tetrisColor)
+            c += 1
+        r += 1
+    newFallingPiece()
+
+def cumulative():
+    #Tells drawCellPiece to draw the tetris pieces already placed
+    for k in canvas.data.fillPrint:
+        drawCellPiece(k[0], k[1], k[2])
+
+def drawCell(r, c, fil):
+    #Creates the cells for the board
+    m = canvas.data.margin
+    cS = canvas.data.cellSize
+    t = m + r * cS
+    l = m + c * cS
+    b = t + cS
+    r = l + cS
+    canvas.create_rectangle(l,t,r,b,fill=fil,width=2,outline="grey")
+
+def drawCellPiece(r, c, fil):
+    #Draws the already placed tetris pieces
+    m = canvas.data.margin
+    cS = canvas.data.cellSize
+    t = m + r * cS
+    l = m + c * cS + 20
+    b = t + cS
+    r = l + cS
+    canvas.create_rectangle(l, t, r, b, fill = fil, width = 1)
+
+def drawShadow(r, c):
+    #Draws the place the tetris piece would go if dropped staight down
+    m = canvas.data.margin
+    cS = canvas.data.cellSize
+    t = m + r * cS
+    l = m + c * cS
+    b = t + cS
+    r = l + cS
+    fil = "#404040"
+    outlin = "#CC00FF"
+    canvas.create_rectangle(l,t,r,b,fill=fil,width=2,outline=outlin)
+    canvas.data.x = 1
+    
+def drawSquare(r, c):
+    #Draws the tetris piece
+    m = canvas.data.margin
+    cS = canvas.data.cellSize
+    t = m + r * cS
+    l = m + c * cS
+    b = t + cS
+    r = l + cS
+    fil = canvas.data.tetrisColor
+    canvas.create_rectangle(l,t,r,b,fill=fil,width=1)
+    canvas.data.x = 1
+
+def removeSquares():
+    #If a row is filled it sends the rows to be cleared to removeSquares2
+    score = 0
+    for r in xrange(canvas.data.rows):
+        canvas.data.remove = [];canvas.data.removeString = [];count = 0
+        for c in xrange(-1, canvas.data.cols):
+            for val in canvas.data.fillPrint:
+                if r == val[0] and c == val[1]:
+                    canvas.data.remove += [val];rc = 'e'+str(r)+','+str(c+1)
+                    canvas.data.removeString += [rc];count += 1
+                    if count == canvas.data.cols:
+                        score += 1
+                        for value in canvas.data.remove:
+                            canvas.data.fillPrint.remove(value)
+                        for value1 in canvas.data.removeString:
+                            for value2 in canvas.data.filled:
+                                if value1 == value2:
+                                    canvas.data.filled.remove(value2)
+                        for value3 in canvas.data.fillPrint:
+                            if value3[0] < r:value3[0] += 1
+                        for r2 in xrange(0, r):
+                            for c2 in xrange(-1, canvas.data.cols):
+                                rc2 = 'e' + str(r2) + ',' + str(c2+1)
+                                removeSquares2(r2, c2, rc2)
+    canvas.data.score += score**2
+
+def removeSquares2(r2,c2, rc2):
+    #Clears filled rows, and moves rest down
+    if rc2 in canvas.data.filled:
+        canvas.data.filled.remove(rc2)
+        rc3 = 'e' + str(r2+1) + ',' + str(c2+1)
+        canvas.data.filled.append(rc3)
+    if rc2 not in canvas.data.filled:
+        rc3 = 'e' + str(r2+1) + ',' + str(c2+1)
+        if rc3 in canvas.data.filled:
+            x = 0
+            for value4 in canvas.data.fillPrint:
+                if r2 == value4[0] and c2 == value4[1]:
+                    x = 1
+            if x == 1:
+                canvas.data.filled.remove(rc3)
+
+#Runs Game
+#Can Specify dimensions of board
+run(15, 10)
